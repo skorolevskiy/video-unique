@@ -67,7 +67,11 @@ async def download_video(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     
     try:
         file_stream = storage.get_file_stream(key)
-        return StreamingResponse(file_stream, media_type="video/mp4")
+        return StreamingResponse(
+            file_stream.iter_chunks(),
+            media_type="video/mp4",
+            headers={"Content-Disposition": f"attachment; filename=processed_video_{job_id}.mp4"}
+        )
     except Exception:
         raise HTTPException(status_code=404, detail="File not found in storage")
 
