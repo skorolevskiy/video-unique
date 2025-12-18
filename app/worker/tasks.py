@@ -36,7 +36,7 @@ def process_video_task(self, job_id_str: str):
     
     temp_dir = f"/tmp/video_processing/{job_id}"
     os.makedirs(temp_dir, exist_ok=True)
-    input_path = os.path.join(temp_dir, "input_video")
+    input_path = os.path.join(temp_dir, "input_video.mp4")
     
     try:
         # Fetch job details (need a separate read, or pass data in args. For MVP, read from DB)
@@ -90,7 +90,11 @@ def process_video_task(self, job_id_str: str):
         
         # 7. Upload Result
         output_key = f"processed/{job_id}/{os.path.basename(output_path)}"
-        output_url = storage.upload_file(output_path, output_key)
+        storage.upload_file(output_path, output_key)
+        
+        # Construct API URL for download
+        # Assuming API is running on localhost:8000 for now, or use a config
+        output_url = f"http://localhost:8000/jobs/{job_id}/download"
         
         # 8. Update DB
         metrics = {
