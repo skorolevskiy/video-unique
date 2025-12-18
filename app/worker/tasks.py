@@ -94,7 +94,7 @@ def process_video_task(self, job_id_str: str):
         
         # Construct API URL for download
         # Assuming API is running on localhost:8000 for now, or use a config
-        output_url = f"http://localhost:8000/jobs/{job_id}/download"
+        output_url = f"http://116.203.139.112:8000/jobs/{job_id}/download"
         
         # 8. Update DB
         metrics = {
