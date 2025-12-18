@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, desc
 from app.db.session import get_db
 from app.db.models import Job, JobStatus
 from app.worker.tasks import process_video_task
@@ -39,6 +39,12 @@ async def create_job(job_in: JobCreate, db: AsyncSession = Depends(get_db)):
     
     return job
 
+@router.get("/jobs", response_model=list[JobResponse])
+async def get_jobs(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Job).order_by(desc(Job.created_at)).offset(skip).limit(limit))
+    jobs = result.scalars().all()
+    return jobs
+
 @router.get("/jobs/{job_id}", response_model=JobResponse)
 async def get_job(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Job).where(Job.id == job_id))
@@ -64,3 +70,21 @@ async def download_video(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
         return StreamingResponse(file_stream, media_type="video/mp4")
     except Exception:
         raise HTTPException(status_code=404, detail="File not found in storage")
+
+@router.delete("/jobs/{job_id}", status_code=204)
+async def delete_job(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Job).where(Job.id == job_id))
+    job = result.scalars().first()
+    
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+        
+    # Delete file from storage if it exists
+    storage = StorageService()
+    # Reconstruct the key based on the convention used in worker
+    key = f"processed/{job_id}/processed_input_video.mp4"
+    storage.delete_file(key)
+    
+    await db.delete(job)
+    await db.commit()
+

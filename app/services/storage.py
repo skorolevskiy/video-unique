@@ -63,3 +63,10 @@ class StorageService:
         else:
             # Assume s3 key for MVP? Or just fail.
             raise ValueError("Only HTTP/HTTPS URLs supported for MVP input")
+
+    def delete_file(self, object_name: str):
+        try:
+            self.s3.delete_object(Bucket=self.bucket, Key=object_name)
+        except Exception:
+            pass # Ignore if file doesn't exist
+
