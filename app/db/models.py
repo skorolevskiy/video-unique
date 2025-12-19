@@ -26,8 +26,6 @@ class Job(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     upload_id = Column(UUID(as_uuid=True), ForeignKey("uploads.id"), nullable=True)
-    upload = relationship("Upload", back_populates="jobs")
-    
     status = Column(String, default=JobStatus.PENDING.value)
     input_url = Column(Text, nullable=False)
     output_url = Column(Text, nullable=True)
@@ -43,3 +41,5 @@ class Job(Base):
     
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    upload = relationship("Upload", back_populates="jobs")
