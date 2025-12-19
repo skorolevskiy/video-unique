@@ -2,12 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
+from sqlalchemy.orm import selectinload
 from app.db.session import get_db
-from app.db.models import Job, JobStatus
+from app.db.models import Job, JobStatus, Upload
 from app.worker.tasks import process_video_task
 from app.services.storage import StorageService
 from pydantic import BaseModel, HttpUrl
 import uuid
+from datetime import datetime
 
 router = APIRouter()
 
@@ -23,15 +25,33 @@ class JobResponse(BaseModel):
     output_url: str | None = None
     metrics: dict | None = None
     error_message: str | None = None
+    
+    class Config:
+        from_attributes = True
+
+class UploadResponse(BaseModel):
+    id: uuid.UUID
+    input_url: str
+    created_at: datetime
+    jobs: list[JobResponse]
+    
+    class Config:
+        from_attributes = True
 
 @router.post("/jobs", response_model=list[JobResponse])
 async def create_job(job_in: JobCreate, db: AsyncSession = Depends(get_db)):
+    # Create Upload record to group variations
+    upload = Upload(input_url=str(job_in.input_url))
+    db.add(upload)
+    await db.flush()  # Generate ID for upload
+
     created_jobs = []
     for _ in range(job_in.copies):
         job = Job(
             input_url=str(job_in.input_url),
             profile_name=job_in.profile,
-            status=JobStatus.PENDING.value
+            status=JobStatus.PENDING.value,
+            upload_id=upload.id
         )
         db.add(job)
         created_jobs.append(job)
@@ -44,6 +64,18 @@ async def create_job(job_in: JobCreate, db: AsyncSession = Depends(get_db)):
         process_video_task.delay(str(job.id))
     
     return created_jobs
+
+@router.get("/uploads", response_model=list[UploadResponse])
+async def get_uploads(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Upload)
+        .options(selectinload(Upload.jobs))
+        .order_by(desc(Upload.created_at))
+        .offset(skip)
+        .limit(limit)
+    )
+    uploads = result.scalars().all()
+    return uploads
 
 @router.get("/jobs", response_model=list[JobResponse])
 async def get_jobs(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db)):
