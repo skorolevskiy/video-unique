@@ -14,6 +14,7 @@ router = APIRouter()
 class JobCreate(BaseModel):
     input_url: HttpUrl
     profile: str = "standard"
+    copies: int = 1
 
 class JobResponse(BaseModel):
     id: uuid.UUID
@@ -23,21 +24,26 @@ class JobResponse(BaseModel):
     metrics: dict | None = None
     error_message: str | None = None
 
-@router.post("/jobs", response_model=JobResponse)
+@router.post("/jobs", response_model=list[JobResponse])
 async def create_job(job_in: JobCreate, db: AsyncSession = Depends(get_db)):
-    job = Job(
-        input_url=str(job_in.input_url),
-        profile_name=job_in.profile,
-        status=JobStatus.PENDING.value
-    )
-    db.add(job)
+    created_jobs = []
+    for _ in range(job_in.copies):
+        job = Job(
+            input_url=str(job_in.input_url),
+            profile_name=job_in.profile,
+            status=JobStatus.PENDING.value
+        )
+        db.add(job)
+        created_jobs.append(job)
+        
     await db.commit()
-    await db.refresh(job)
     
-    # Trigger Celery task
-    process_video_task.delay(str(job.id))
+    for job in created_jobs:
+        await db.refresh(job)
+        # Trigger Celery task
+        process_video_task.delay(str(job.id))
     
-    return job
+    return created_jobs
 
 @router.get("/jobs", response_model=list[JobResponse])
 async def get_jobs(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db)):
