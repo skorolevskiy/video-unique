@@ -61,8 +61,8 @@ class StorageService:
                     for chunk in r.iter_content(chunk_size=8192):
                         f.write(chunk)
         else:
-            # Assume s3 key for MVP? Or just fail.
-            raise ValueError("Only HTTP/HTTPS URLs supported for MVP input")
+            # Assume it is a key in the default bucket
+            self.s3.download_file(self.bucket, url, dest_path)
 
     def delete_file(self, object_name: str):
         try:

@@ -7,7 +7,7 @@ from app.db.session import get_db
 from app.db.models import Job, JobStatus, Upload
 from app.worker.tasks import process_video_task
 from app.services.storage import StorageService
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, HttpUrl, field_validator
 import uuid
 from datetime import datetime
 
@@ -17,6 +17,15 @@ class JobCreate(BaseModel):
     input_url: HttpUrl
     profile: str = "standard"
     copies: int = 1
+
+    @field_validator('copies')
+    @classmethod
+    def validate_copies(cls, v: int) -> int:
+        if v < 1:
+            return 1
+        if v > 50: # Limit max copies to prevent abuse
+            return 50
+        return v
 
 class JobResponse(BaseModel):
     id: uuid.UUID
@@ -42,20 +51,19 @@ class UploadResponse(BaseModel):
 async def create_job(job_in: JobCreate, db: AsyncSession = Depends(get_db)):
     # Create Upload record to group variations
     upload = Upload(input_url=str(job_in.input_url))
-    db.add(upload)
-    await db.flush()  # Generate ID for upload
-
+    
     created_jobs = []
     for _ in range(job_in.copies):
         job = Job(
             input_url=str(job_in.input_url),
             profile_name=job_in.profile,
-            status=JobStatus.PENDING.value,
-            upload_id=upload.id
+            status=JobStatus.PENDING.value
         )
-        db.add(job)
+        # Link to upload using relationship
+        upload.jobs.append(job)
         created_jobs.append(job)
-        
+    
+    db.add(upload)
     await db.commit()
     
     for job in created_jobs:
@@ -76,6 +84,18 @@ async def get_uploads(skip: int = 0, limit: int = 100, db: AsyncSession = Depend
     )
     uploads = result.scalars().all()
     return uploads
+
+@router.get("/uploads/{upload_id}", response_model=UploadResponse)
+async def get_upload(upload_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Upload)
+        .options(selectinload(Upload.jobs))
+        .where(Upload.id == upload_id)
+    )
+    upload = result.scalars().first()
+    if not upload:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    return upload
 
 @router.get("/jobs", response_model=list[JobResponse])
 async def get_jobs(skip: int = 0, limit: int = 100, db: AsyncSession = Depends(get_db)):
@@ -113,20 +133,32 @@ async def download_video(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     except Exception:
         raise HTTPException(status_code=404, detail="File not found in storage")
 
-@router.delete("/jobs/{job_id}", status_code=204)
-async def delete_job(job_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Job).where(Job.id == job_id))
-    job = result.scalars().first()
+@router.delete("/uploads/{upload_id}", status_code=204)
+async def delete_upload(upload_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    # Fetch upload with all associated jobs
+    result = await db.execute(
+        select(Upload)
+        .options(selectinload(Upload.jobs))
+        .where(Upload.id == upload_id)
+    )
+    upload = result.scalars().first()
     
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    if not upload:
+        raise HTTPException(status_code=404, detail="Upload not found")
         
-    # Delete file from storage if it exists
     storage = StorageService()
-    # Reconstruct the key based on the convention used in worker
-    key = f"processed/{job_id}/processed_input_video.mp4"
-    storage.delete_file(key)
     
-    await db.delete(job)
+    # Delete all associated files from storage
+    for job in upload.jobs:
+        # Reconstruct the key based on the convention used in worker
+        key = f"processed/{job.id}/processed_input_video.mp4"
+        try:
+            storage.delete_file(key)
+        except Exception:
+            # Log error but continue deletion
+            pass
+    
+    # Delete upload (cascade will delete jobs from DB)
+    await db.delete(upload)
     await db.commit()
 
