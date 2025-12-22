@@ -58,8 +58,7 @@ def process_video_task(self, job_id_str: str):
         orig_md5 = VideoHasher.calculate_file_hash(input_path)
         orig_phash = VideoHasher.calculate_perceptual_hashes(input_path)
         
-        # 4. Build Pipeline based on profile
-        # For MVP, hardcode a "Standard" profile
+        # 4. Build Pipeline
         steps = [
             MetadataMutationStep(),
             ColorModulationStep(),

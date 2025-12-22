@@ -15,7 +15,6 @@ router = APIRouter()
 
 class JobCreate(BaseModel):
     input_url: HttpUrl
-    profile: str = "standard"
     copies: int = 1
 
     @field_validator('copies')
@@ -23,8 +22,8 @@ class JobCreate(BaseModel):
     def validate_copies(cls, v: int) -> int:
         if v < 1:
             return 1
-        if v > 50: # Limit max copies to prevent abuse
-            return 50
+        if v > 20: # Limit max copies to prevent abuse
+            return 20
         return v
 
 class JobResponse(BaseModel):
@@ -56,7 +55,6 @@ async def create_job(job_in: JobCreate, db: AsyncSession = Depends(get_db)):
     for _ in range(job_in.copies):
         job = Job(
             input_url=str(job_in.input_url),
-            profile_name=job_in.profile,
             status=JobStatus.PENDING.value
         )
         # Link to upload using relationship
@@ -161,4 +159,3 @@ async def delete_upload(upload_id: uuid.UUID, db: AsyncSession = Depends(get_db)
     # Delete upload (cascade will delete jobs from DB)
     await db.delete(upload)
     await db.commit()
-
