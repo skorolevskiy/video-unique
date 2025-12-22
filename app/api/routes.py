@@ -47,7 +47,7 @@ class UploadResponse(BaseModel):
     class Config:
         from_attributes = True
 
-@router.post("/jobs", response_model=list[JobResponse])
+@router.post("/uploads", response_model=list[JobResponse])
 async def create_job(job_in: JobCreate, db: AsyncSession = Depends(get_db)):
     # Create Upload record to group variations
     upload = Upload(input_url=str(job_in.input_url))
